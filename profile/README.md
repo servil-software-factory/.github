@@ -13,7 +13,7 @@ Software called *servil* exists for one purpose: to serve the person running it 
 1. **Loyalty to the user.** Minimize what the user has to trust. Keep dependency trees tiny, prefer small owned code over sprawling third-party stacks, verify every build input by cryptographic hash rather than HTTPS alone, and ship reproducible artifacts anyone can rebuild and check byte-for-byte.
 2. **Reliability by construction, not by hope.** Make invalid states unrepresentable in the type system, keep critical invariant checks active in release builds, fail closed rather than returning a wrong answer, prove critical kernels mechanically, and test the tests themselves with mutation testing and planted faults.
 3. **Radical honesty.** Say plainly what our checks cover *and* what remains outside them. Disclose openly that our code is written primarily by AI agents under human direction and release approval, and never imply an independent human security audit where none has been done. Never hide a slowdown. When a serious bug gets past us, publish a frank after-action report explaining what broke and what structural check stops it from happening again.
-4. **Evidence over claims.** Gate every commit mechanically on its exact SHA, never by memory. Measure performance honestly on quiet, dedicated native hardware — never VMs — with fresh link layouts and simultaneous multi-cell statistics. Calibrate our AI security auditors by measuring their actual recall on real bugs of ours before trusting them on a release.
+4. **Evidence over claims.** Gate every commit mechanically on its exact SHA, never by memory. Measure performance on quiet, dedicated native hardware, with fresh link layouts and every cell judged at once; a virtual machine's timing is best effort and never decides a landing or a release. Calibrate our AI security auditors by measuring their actual recall on real bugs of ours before trusting them on a release.
 5. **Clear boundaries.** Support only the platforms we actually build and test natively on our own hardware, and refuse unsupported targets clearly. Tell users plainly which software we are fully committed to supporting (**Official**, starting at `1.0`), which repositories exist to verify it (**Infrastructure**), and which are unfinished experiments (**Experimental**).
 
 ---
@@ -32,7 +32,7 @@ Projects actively running our Factory practices, gates, security reporting, and 
 
 | Project | Repository | Ships | Current release | Notes |
 |---|---|---|---|---|
-| **BLAKE3-Servil** | [`servil-software-factory/BLAKE3`](https://github.com/servil-software-factory/BLAKE3) | `blake3-servil-core`, `blake3-servil`, `blake3-servil-version`, `b3sums` (`b3sum` CLI), C API (`capi/`) | `0.10.0` (pre-1.0) | First candidate for Official status at `1.0`. Already applies the full suite of practices below, including `SECURITY.md`, `QUALITY.md`, reproducible releases, and public after-action reports; pre-1.0 APIs may still change between minor versions. |
+| **BLAKE3-Servil** | [`servil-software-factory/BLAKE3`](https://github.com/servil-software-factory/BLAKE3) | `blake3-servil-core`, `blake3-servil`, `blake3-servil-version`, `b3sums` (`b3sum` CLI), C API (`capi/`) | `0.10.0` (pre-1.0) | First candidate for Official status at `1.0`. It is where the practices below come from, and it runs most of them today: `SECURITY.md`, `QUALITY.md`, the landing gates, mutation testing, the proofs, reproducible releases, and public after-action reports. Still being rolled out there: hash-pinned CI inputs and fewer dependencies (#479), landing review as a recorded gate (a trial), written contracts and private fields for every stateful type, and a checked reason on every `unsafe` block (today the `Pipeline`'s and `b3sum`'s). Pre-1.0 APIs may still change between minor versions. |
 
 ### Infrastructure
 
@@ -52,7 +52,6 @@ Research prototypes, libraries, and tools under exploration. **We do not commit 
 | **Tare** | [`devonjonte/tare`](https://github.com/devonjonte/tare) | A/B benchmarking tool using fresh link layouts, alternating runs, and simultaneous multi-cell judging | Extracted from our benchmarking methodology. |
 | **cargo-mutamancer** | [`johnservil/cargo-mutamancer`](https://github.com/johnservil/cargo-mutamancer) | Fast commit-scoped Rust mutation testing experiment | Research/tooling prototype. |
 | **content-derived-chunk-slicing** | [`johnservil/content-derived-chunk-slicing`](https://github.com/johnservil/content-derived-chunk-slicing) | Content-defined chunking store + slice manifest experiment | Research prototype. |
-| **mibz2** | [`samshackleton-tech/mibz2`](https://github.com/samshackleton-tech/mibz2) | Experimental bzip2 decoder and benchmarks (`mibz2-vs-common`) | Experimental. |
 | **blake3-servil-c-b3sum** | [`samshackleton-tech/blake3-servil-c-b3sum`](https://github.com/samshackleton-tech/blake3-servil-c-b3sum) | Example C consumer using the BLAKE3-Servil C API | Reference example. |
 
 *(Internal workflow forks such as `johnservil/pi` and writings/talks are not Servil Software Factory products.)*
@@ -108,7 +107,7 @@ These policies, practices, and tools were earned through real bugs, regressions,
 | **Hand-written assembly or crypto inner kernels** | Machine-checked formal proofs (outputs, memory bounds, ABI, secret-independent branches/addresses); prover fault controls; startup known-answer self-test. | `tools/verify/` (Z3 + Sail/C2SP symbolic proofs, input-hashed long proofs, `test_mutants.py`), `initialize()` self-test. |
 | **Custom concurrency / lock-free synchronization** | Exhaustive schedule model checking with planted concurrency faults; weak-memory fence verification on Arm64 (`RCpc` loads). | Shuttle tests (`shuttle_finish`, `shuttle_park`, `shuttle_pipeline` + 10 planted bugs), `tools/check-waker-order.py`. |
 | **`unsafe` memory handling or FFI** | Unreadable guard-page tests flush against input/output buffers; script-checked `SAFETY:` comments on every `unsafe` block. | `src/test_support.rs::guard`, `SAFETY` comment checker. |
-| **Performance as a core user promise** | All-cells A/B regression gate on quiet, dedicated **native** hardware (alternating runs, fresh link layouts, FDR-controlled judging); never gate releases or make headline speed claims on VMs; own every real slowdown (fix it, or state it plainly in `CHANGELOG.md` with machine and size). | `bench-hashes`, `clocks` / `tare`, dedicated timing Macs & Linux hosts under `bench-turn`, `tools/size.py`. |
+| **Performance as a core user promise** | All-cells A/B regression gate on quiet, dedicated **native** hardware (alternating runs, fresh link layouts, FDR-controlled judging); a virtual machine's timing is best effort and never decides a landing or a release; own every real slowdown (fix it, or state it plainly in `CHANGELOG.md` with machine and size). | `bench-hashes`, `clocks` / `tare`, dedicated timing Macs & Linux hosts under `bench-turn`, `tools/size.py`. |
 
 ---
 
