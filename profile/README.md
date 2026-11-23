@@ -32,7 +32,7 @@ Projects actively running our Factory practices, gates, security reporting, and 
 
 | Project | Repository | Ships | Current release | Notes |
 |---|---|---|---|---|
-| **BLAKE3-Servil** | [`servil-software-factory/BLAKE3`](https://github.com/servil-software-factory/BLAKE3) | `blake3-servil-core`, `blake3-servil`, `blake3-servil-version`, `b3sums` (`b3sum` CLI), C API (`capi/`) | `0.10.0` (pre-1.0) | First candidate for Official status at `1.0`. It is where the practices below come from, and it runs most of them today: `SECURITY.md`, `QUALITY.md`, the landing gates, mutation testing, the proofs, reproducible releases, and public after-action reports. Still being rolled out there: hash-pinned CI inputs and fewer dependencies (#479), landing review as a recorded gate (a trial), written contracts and private fields for every stateful type, and a checked reason on every `unsafe` block (today the `Pipeline`'s and `b3sum`'s). Pre-1.0 APIs may still change between minor versions. |
+| **BLAKE3-Servil** | [`servil-software-factory/BLAKE3`](https://github.com/servil-software-factory/BLAKE3) | `blake3-servil-core`, `blake3-servil`, `blake3-servil-version`, `b3sums` (`b3sum` CLI), C API (`capi/`) | `0.10.0` (pre-1.0) | First candidate for Official status at `1.0`. It is where the practices below come from, and it runs most of them today: `SECURITY.md`, `QUALITY.md`, the landing gates, mutation testing, the proofs, reproducible releases, public after-action reports, hash-pinned CI inputs, minimized dependencies, `cargo-deny`/`cargo-vet` gating (#479), and cross-family landing review on shipped code (a trial). Currently rolling out ahead of `1.0` (#499): rewriting stateful types so types carry their rules (private fields, checked constructors), crate-wide lint tables (no narrowing `as`, a checked reason on every `unsafe` block and `debug_assert!`), an enforced stack budget, guard-page test runs, full target×feature `-D warnings` coverage, lifecycle work counts, and removing the native C build (#487). Pre-1.0 APIs may still change between minor versions. |
 
 ### Infrastructure
 
@@ -47,7 +47,7 @@ Research prototypes, libraries, and tools under exploration. **We do not commit 
 
 | Project | Repository | What it is | Notes |
 |---|---|---|---|
-| **Sigil** | [`johnservil/sigil`](https://github.com/johnservil/sigil) | Compact multi-script glyph encoding (`sigilcode`) for hashes and bytes | 0.1 has a known Unicode 15.1 Cham line-break flaw; 0.2 will change the format incompatibly. *(Shipping `sigilcode 0.1` inside `b3sums --sigilcode` before Sigil stabilized was premature; treat `--sigilcode` as experimental until Sigil 0.2 is finished.)* |
+| **Sigil** | [`johnservil/sigil`](https://github.com/johnservil/sigil) | Compact multi-script glyph encoding (`sigilcode`) for hashes and bytes | `0.2.0` (hex-prefixed) is released on trial to fix 0.1's Unicode 15.1 Cham line-break flaw. *(Treat `b3sums --sigilcode` as experimental until the 0.2 format is finalized.)* |
 | **Ode** | [`samshackleton-tech/ode`](https://github.com/samshackleton-tech/ode) | Research prototype for proof-carrying native code (binary + short contract + machine-checkable proof) | Early research prototype. |
 | **Tare** | [`devonjonte/tare`](https://github.com/devonjonte/tare) | A/B benchmarking tool using fresh link layouts, alternating runs, and simultaneous multi-cell judging | Extracted from our benchmarking methodology. |
 | **cargo-mutamancer** | [`johnservil/cargo-mutamancer`](https://github.com/johnservil/cargo-mutamancer) | Fast commit-scoped Rust mutation testing experiment | Research/tooling prototype. |
@@ -67,35 +67,40 @@ These policies, practices, and tools were earned through real bugs, regressions,
 1. **Fail closed, enforce invariants in types, and write contracts for stateful types.**
    - Internal callers go through the same checked APIs as external callers (for example, `BLAKE3-Servil` removed its `hazmat` module, made `Platform` `#[non_exhaustive]` so safe code cannot forge CPU capability tokens, and enforced buffer alignment and padding through `Block` and `Batch`).
    - Types holding invariants keep their fields private and document their invariants and every operation, including trait implementations (`Clone`, `Drop`, `Eq`, `Debug`).
-   - Cheap invariant checks stay active in release builds; crash-only binaries (`panic = "abort"`) stop immediately rather than continuing after a broken invariant or failed I/O safety check.
+   - Cheap invariant checks stay active in release builds; `debug_assert!` requires a site comment explaining why it cannot run in release builds. Every `unsafe` block states why it is sound, and crate lint tables deny narrowing `as` casts and silent error drops. Crash-only binaries (`panic = "abort"`) stop immediately rather than continuing after a broken invariant or failed I/O safety check.
 
-2. **Verify against an independent oracle, and test the tests.**
-   - Check outputs against an independent implementation or specification (e.g., official BLAKE3 test vectors and the upstream `blake3` crate, `bao-tree` for outboards).
+2. **Maintenance and design guidelines: finish changes, prune vestiges immediately, collapse copies.**
+   - **Cut changes small enough that one landing finishes them.** Never leave two versions of one idea alive in the tree; "later" is not a state. Code left past its sell-by date — a new version started while callers stay on the old one — is where stale copies and bugs gather.
+   - **Extirpate vestigial code immediately** in the commit that makes it vestigial (dead paths, unused options, superseded APIs), without spending time measuring them.
+   - **Collapse duplicate implementations into one with two users**, even at a small cost in speed (weighed on real measurements where speed is promised). Keep a replaced component as a test oracle while its replacement lands, and watch non-rising counts of shipped lines, entry points, and `cfg`s so complexity does not creep back.
+
+3. **Verify against an independent oracle, and test the tests.**
+   - Check outputs against an independent implementation or specification (e.g., official BLAKE3 test vectors and the upstream `blake3` crate, `bao-tree` for outboards). Where work is countable by arithmetic (such as compressions or kernel calls), check work counts in lifecycle tests so excess work fails immediately on any machine without a clock.
    - Run **diff-scoped mutation testing** as a landing gate (`tools/mutants/check.py` narrowed by line reach via `tools/tests/reach.py`, typically ~1 minute per landing) plus periodic whole-crate mutation runs. Every surviving mutant needs either a killing test or a written reason in a checked-in list; a timeout is a bug to turn into a fast failure.
    - **Plant deliberate faults** to verify safety checks and verification tools reject them (removing CLI safety checks one by one, planting wrong rotations or bounds in kernels, planting concurrency bugs in model checks).
 
-3. **Mechanical landing gates on the exact commit SHA (`tools/land.py`).**
-   - Nothing lands on `next` by memory or by "CI was green earlier." A mechanical landing script requires every gate status — CI across all supported targets and compilers, native platform suites, mutation testing, regression checks (where compiled code changed), and landing review (where shipped code changed) — on the **exact commit** being fast-forwarded.
+4. **Mechanical landing gates on the exact commit SHA (`tools/land.py`).**
+   - Nothing lands on `next` by memory or by "CI was green earlier." A mechanical landing script requires every gate status — CI across every supported target, compiler, and feature combination with warnings denied, native platform suites, mutation testing, regression checks (where compiled code changed), and landing review (where shipped code changed) — on the **exact commit** being fast-forwarded.
    - Support only platforms we actually build and test natively; fail clearly at build time on unsupported platforms and point to an upstream alternative where one exists.
    - Every open issue and pull request has a single assignee whose move is next.
 
-4. **Cross-family AI landing review + recall-calibrated multi-family release audits.**
+5. **Cross-family AI landing review + recall-calibrated multi-family release audits.**
    - **At landing (Rule 2, trialing on `BLAKE3-Servil`):** Every change to *shipped code* (libraries, CLI, C API, build scripts, manifests) receives one round of independent review by an AI model of a **different family** than the author, running tests and adversarial probes in a sandbox on our build host (`review-landing`). Findings hold the landing only for a wrong result, crash/panic, hang, or slowdown; non-blocking findings land and become tracked issues. Tools, CI workflows, docs, and mutation lists need no landing review.
    - **Before every stable release:** At least two independent AI agents from different leading-edge model families audit the release candidate and final version diff. A model family counts toward the release bar only after we have **measured its recall** on a real defect tree of ours with known bugs. Audit reports and finding dispositions are published with the release evidence.
    - **Candid limit:** AI review catches real bugs, *and* models share blind spots. **AI review is not an independent human security audit.** Each project's `QUALITY.md` states plainly whether an independent human audit has occurred.
 
-5. **Minimal dependencies and a hash-verified supply chain.**
+6. **Minimal dependencies and a hash-verified supply chain.**
    - Prefer small, readable, owned code over large dependency trees, proc-macros, and unnecessary external build toolchains (e.g., a purpose-built thread pool instead of Rayon, replacing heavy CLI/helper crates with small special-purpose code, and eliminating native C build dependencies — tracked in `BLAKE3` #479).
-   - Pin every GitHub Action to a full 40-character commit SHA, every container image to a `@sha256:` digest, and every downloaded bootstrap tool to a versioned URL verified by SHA-256 (being rolled out across `BLAKE3` and `bench-hashes` in #479).
-   - Commit lockfiles and enforce `--locked` builds; dependency changes happen only in explicit, reviewable commits, never silently at release time.
+   - Pin every GitHub Action to a full 40-character commit SHA, every container image to a `@sha256:` digest, and every downloaded bootstrap tool to a versioned URL verified by SHA-256 (rolled out across `BLAKE3` in #479).
+   - Commit lockfiles and enforce `--locked` builds; gate dependencies with `cargo-deny` and `cargo-vet` across all crates and features; dependency changes happen only in explicit, reviewable commits, never silently at release time.
 
-6. **Clean, reproducible, independently re-verified releases.**
+7. **Clean, reproducible, independently re-verified releases.**
    - Stamp releases mechanically (`tools/gen-ver.py`) as `vX.Y.Z+<40-char-code-commit-sha>`, binding the tag, manifests, lockfiles, headers, and `--version` to the exact source commit. Lock release tags and GitHub releases against modification or deletion.
    - Verify every release step mechanically (`tools/release-check.py`). A human maintainer (Zooko) explicitly approves every release tag, crate publication, yank, and advisory.
    - Build binaries and crate archives byte-for-byte reproducibly inside a pinned toolchain/container (`tools/b3sum-release-container.sh`, `tools/crates-release.sh`), require two independent builders to match byte-for-byte before release, and re-verify what crates.io and GitHub actually serve after publication (`tools/release_artifacts.py TAG --published --rebuilt`).
    - Where we do not use GPG or SLSA signatures, say so plainly and rely on immutable commit-bound tags + independent reproducible rebuilds instead.
 
-7. **Honest documentation, clear security response, and public after-action reports.**
+8. **Honest documentation, clear security response, and public after-action reports.**
    - Every Official project ships a plain-English `QUALITY.md` stating every protection layer beside what remains outside it, with commands to reproduce the checks yourself.
    - Every Official project ships a `SECURITY.md` with private vulnerability reporting via GitHub Security Advisories, fixed releases, public advisories, and crate yanks when continued use of a release is unsafe.
    - Serious defects get a public after-action report explaining what failed, how it got past our checks, and what structural check was added so that class of bug cannot pass again.
